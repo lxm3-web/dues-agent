@@ -1,7 +1,7 @@
 import csv, re, os, datetime
 from collections import defaultdict
 
-BASE = "/Users/zhengyuwei/Library/Mobile Documents/com~apple~CloudDocs/Kyo's工作區/agents/web-design/projects/demo-library/cases/04_會費對帳催繳助理/02_AI設定/cc/dues-agent"
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TODAY = datetime.date(2026, 9, 20)
 MONTH = "2026-09"
 OUT = f"{BASE}/outbox"
@@ -125,13 +125,15 @@ write_csv(f"{OUT}/{MONTH}_待人工確認.csv",
           ["交易序號", "入帳日期", "管道", "匯款人／帳戶名", "金額", "備註", "對不上原因", "最接近候選"],
           [[p["交易序號"], p["入帳日期"], p["管道"], p["匯款人／帳戶名"], p["金額"], p["備註"], why, " / ".join(c) or "無"] for p, why, c in unmatched])
 
+# 收據：已繳照年費開；重複繳的信已承諾「先依年費開立」，所以一併列出並註明
 write_csv(f"{OUT}/{MONTH}_收據清單.csv",
-          ["會員編號", "公司名稱", "聯絡人", "年費", "入帳日期", "交易序號", "管道", "Email"],
+          ["會員編號", "公司名稱", "聯絡人", "開立金額", "入帳日期", "交易序號", "管道", "Email", "備註"],
           [[r["會員編號"], r["公司名稱"], r["聯絡人"], r["年費"],
             "；".join(p["入帳日期"] for p, _ in matched[r["會員編號"]]),
             "；".join(p["交易序號"] for p, _ in matched[r["會員編號"]]),
-            "；".join(p["管道"] for p, _ in matched[r["會員編號"]]), r["Email"]]
-           for r in rows if r["狀態"] == "已繳"])
+            "；".join(p["管道"] for p, _ in matched[r["會員編號"]]), r["Email"],
+            "" if r["狀態"] == "已繳" else f"重複繳，入帳合計 NT$ {fmt(r['入帳合計'])}，先依年費開立，多繳 NT$ {fmt(r['差額'])} 待會員回覆"]
+           for r in rows if r["狀態"] in ("已繳", "重複繳")])
 
 LEVEL_ORDER = {"警告": 0, "強調": 1, "提醒": 2}
 chase = [r for r in rows if r["狀態"] in ("未繳", "短繳") and r["級別"] in LEVEL_ORDER]
@@ -309,6 +311,7 @@ summary = f"""{STATUS_LINE}
 - 警告級信裡的處理期限寫 {WARN_DUE}（今天＋10 天）。
 - 名冊裡「XX股份有限公司」與「XX有限公司」同時存在時，匯款人名去後綴後兩家都對得上；年費不同就用金額分（泰宇材料 6,000 vs 36,000），年費相同就不硬配，列待人工確認。
 - 前兩字比對若有兩家以上候選，一律不硬配，列待人工確認。
+- 收據清單除了已繳 {cnt['已繳']} 家，也列入重複繳 {cnt['重複繳']} 家（共 {cnt['已繳'] + cnt['重複繳']} 張），開立金額一律＝年費；因為重複繳的信裡已承諾「收據先依年費開立」，不列會漏開。多繳的部分不開收據，等會員回覆退款或抵明年。
 - 對不上的 {cnt['對不上']} 筆入帳**沒有**算進任何人的入帳，所以候選公司目前仍列「未繳」並附了催繳信；人工認領後這幾封要抽掉。
 
 ## 十、下一步
