@@ -1,7 +1,7 @@
 import csv, re, os, datetime
-from collections import defaultdict
+from collections import defaultdict, Counter
 
-BASE = "/Users/zhengyuwei/Library/Mobile Documents/com~apple~CloudDocs/Kyo's工作區/agents/web-design/projects/demo-library/cases/04_會費對帳催繳助理/02_AI設定/cc/dues-agent"
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TODAY = datetime.date(2026, 9, 20)
 MONTH = "2026-09"
 OUT = f"{BASE}/outbox"
@@ -133,6 +133,17 @@ write_csv(f"{OUT}/{MONTH}_收據清單.csv",
             "；".join(p["管道"] for p, _ in matched[r["會員編號"]]), r["Email"]]
            for r in rows if r["狀態"] == "已繳"])
 
+# 待認領入帳的候選會員：這些人目前算未繳／短繳，但可能款項已進來，認領前不要寄
+pending_claim = defaultdict(list)
+for p_, why, cands in unmatched:
+    for c in cands:
+        mid = c.split()[0]
+        pending_claim[mid].append(f"{p_['交易序號']} {p_['入帳日期']} {p_['匯款人／帳戶名']} NT$ {fmt(p_['金額'])}")
+
+def claim_note(r):
+    ts = pending_claim.get(r["會員編號"], [])
+    return "；".join(ts) if ts else ""
+
 LEVEL_ORDER = {"警告": 0, "強調": 1, "提醒": 2}
 chase = [r for r in rows if r["狀態"] in ("未繳", "短繳") and r["級別"] in LEVEL_ORDER]
 chase.sort(key=lambda r: (LEVEL_ORDER[r["級別"]], -r["年費"]))
@@ -150,9 +161,10 @@ def action(r):
     return f"{what}；{via}"
 
 write_csv(f"{OUT}/{MONTH}_催繳名單.csv",
-          ["優先", "會員編號", "公司名稱", "聯絡人", "職稱", "會員級別", "年費", "狀態", "應收金額", "應繳期限", "逾期天數", "級別", "聯絡偏好", "Email", "電話", "建議動作", "信件檔"],
+          ["優先", "會員編號", "公司名稱", "聯絡人", "職稱", "會員級別", "年費", "狀態", "應收金額", "應繳期限", "逾期天數", "級別", "聯絡偏好", "Email", "電話", "建議動作", "待認領入帳（先不要寄）", "信件檔"],
           [[i + 1, r["會員編號"], r["公司名稱"], r["聯絡人"], r["職稱"], r["會員級別"], r["年費"], r["狀態"], r["差額"],
             r["應繳期限"], r["逾期天數"], r["級別"] or "—", r["聯絡偏好"], r["Email"], r["電話"], action(r),
+            claim_note(r) or "—",
             f"{MONTH}_催繳信/{r['會員編號']}_{r['公司名稱']}.md"]
            for i, r in enumerate(chase + dup)])
 
@@ -193,7 +205,9 @@ lengths = []
 for r in chase + dup:
     head, body, ask, tail = letter(r)
     tag = f"{r['狀態']}" + (f"／{r['級別']}" if r["級別"] else "")
-    text = f"{STATUS_LINE}\n\n# {r['會員編號']} {r['公司名稱']}｜{tag}\n\n{head}\n\n{body}\n\n{ask}\n\n{tail}\n"
+    hold = claim_note(r)
+    hold_line = f"> 先不要寄：有待認領入帳可能是本會員（{hold}），認領後這封要抽掉或改寫。\n" if hold else ""
+    text = f"{STATUS_LINE}\n{hold_line}\n# {r['會員編號']} {r['公司名稱']}｜{tag}\n\n{head}\n\n{body}\n\n{ask}\n\n{tail}\n"
     with open(f"{LETTERS}/{r['會員編號']}_{r['公司名稱']}.md", "w", encoding="utf-8") as f:
         f.write(text)
     lengths.append((r["會員編號"], len(head + body + ask + tail)))
@@ -227,6 +241,20 @@ old_names = "、".join(f"{r['會員編號']} {r['公司名稱']}" for r in warn_
 top_warn = max(lv["警告"], key=lambda r: r["差額"])
 short_min = min(r["差額"] for r in rows if r["狀態"] == "短繳")
 short_max = max(r["差額"] for r in rows if r["狀態"] == "短繳")
+short_dist = sorted(Counter(r["差額"] for r in rows if r["狀態"] == "短繳").items())
+short_desc = "、".join(f"差 {fmt(v)} 有 {c} 家" for v, c in short_dist)
+# 前兩字同族但配不出唯一對象的入帳
+pre2_un = [(p_, why, c) for p_, why, c in unmatched if "前兩字" in why]
+pre2_prefix = "、".join(sorted(set(p_["匯款人／帳戶名"] for p_, _, _ in pre2_un)))
+pre2_family = sorted(set(norm(p_["匯款人／帳戶名"])[:2] for p_, _, _ in pre2_un))
+pre2_family_desc = "、".join(f"名冊「{k}」開頭共 {len(by_pre2.get(k, []))} 家" for k in pre2_family)
+# 金額對不上任一候選年費的入帳（不是純粹同名分不出）
+odd_amt = [(p_, c) for p_, why, c in unmatched
+           if "只差股份" in why and all(p_["金額"] != m["年費"] for m in by_name[norm(p_["匯款人／帳戶名"])])]
+odd_amt_desc = "、".join(f"{p_['交易序號']} {p_['匯款人／帳戶名']} NT$ {fmt(p_['金額'])}" for p_, _ in odd_amt)
+
+hold_rows = [r for r in chase + dup if claim_note(r)]
+hold_tbl = "\n".join(f"| {r['會員編號']} | {r['公司名稱']} | {r['狀態']} | NT$ {fmt(r['差額'])} | {r['級別'] or '—'} | {claim_note(r)} |" for r in hold_rows) or "| — | 無 | — | — | — | — |"
 
 def tbl(rs, cols):
     out = ["| " + " | ".join(c for c, _ in cols) + " |", "|" + "---|" * len(cols)]
@@ -284,11 +312,19 @@ summary = f"""{STATUS_LINE}
 |---|---|---|---|---|---|---|
 {um_tbl}
 
+## 五之二、受待認領入帳影響的催繳對象（**先不要寄**）
+
+這些人目前算未繳／短繳，但第五節有入帳可能就是他們的；認領後信要抽掉或改寫。
+
+| 編號 | 公司 | 目前狀態 | 應收 | 級別 | 可能屬於他的入帳 |
+|---|---|---|---|---|---|
+{hold_tbl}
+
 ## 六、三個發現
 
-1. **對不上的 {cnt['對不上']} 筆（NT$ {fmt(unmatched_amt)}）每筆都有候選，人工一比就能收掉。** 三種卡法：(a) 名冊有 {len(twins)} 組公司只差「股份」兩字（{twin_names}），銀行匯款人名分不出來，佔 {twin_cnt} 筆——建議秘書處查匯款帳號或直接問會員；(b) 匯款人姓名遮罩（{masked_names}），用首尾字＋金額都找到唯一候選；(c)「中鼎企業」兩筆，名冊有 5 家「中鼎」開頭。收掉後未繳家數會再降，這批候選公司目前仍列未繳、也擬了信，**認領前先不要寄**。
+1. **對不上的 {cnt['對不上']} 筆（NT$ {fmt(unmatched_amt)}）每筆都有候選，人工一比就能收掉。** 三種卡法：(a) 名冊有 {len(twins)} 組公司只差「股份」兩字（{twin_names}），銀行匯款人名分不出來，佔 {twin_cnt} 筆——建議秘書處查匯款帳號或直接問會員；(b) 匯款人姓名遮罩（{masked_names}），用首尾字＋金額都找到唯一候選；(c) 匯款人只寫共同前兩字（{pre2_prefix}，{len(pre2_un)} 筆），{pre2_family_desc}，同年費的分不出是哪一家。另外 {odd_amt_desc} 金額不等於候選任一家的年費，認領後多半還是短繳，要一併確認。收掉後未繳家數會再降，這批候選公司目前仍列未繳、也擬了信，**認領前先不要寄**。
 2. **警告級 {len(lv['警告'])} 家分兩種。** {len(warn_630)} 家是 6/30 到期、逾期 82 天，權益暫停條款正要啟動，這批建議聯絡偏好是電話的先打電話；另外 {len(warn_old)} 家是 1/15、2/15 到期、逾期已超過 200 天（{old_names}），這種通常是去年就沒繳或已退會，建議先確認還在不在會，再決定要不要寄。金額最大的是 {top_warn['會員編號']} {top_warn['公司名稱']}（{top_warn['會員級別']}，NT$ {fmt(top_warn['差額'])}）。
-3. **短繳 {cnt['短繳']} 家差額都在 NT$ {fmt(short_min)}～{fmt(short_max)}，不像故意不繳。** 500／1,000 像是手續費被扣、3,000 像是匯了一半或打錯級別；信裡把差額寫清楚就好，不用施壓。
+3. **短繳 {cnt['短繳']} 家差額都在 NT$ {fmt(short_min)}～{fmt(short_max)}，不像故意不繳（{short_desc}）。** 小額像是手續費或匯費被扣，金額較大的像是分次匯或級別記錯；差額怎麼來的名冊與入帳看不出來，信裡只寫清楚尚差多少，不推測原因、不施壓。
 
 ## 七、各級別繳費率
 
@@ -313,7 +349,7 @@ summary = f"""{STATUS_LINE}
 
 ## 十、下一步
 
-1. 秘書長看第二節警告級 {len(lv['警告'])} 家與第五節對不上 {cnt['對不上']} 筆。
+1. 秘書長看第二節警告級 {len(lv['警告'])} 家與第五節對不上 {cnt['對不上']} 筆；第五之二的 {len(hold_rows)} 家在認領前先不要寄。
 2. 小美依待人工確認清單打電話認領入帳，認領後跟我說「M0xx 是 TX20xx」，我更新對帳結果並抽掉那封信。
 3. 秘書長說「發下去」，我把 outbox 標已確認、log 補記；實際寄信由秘書處按下去。
 """
@@ -321,7 +357,7 @@ with open(f"{OUT}/{MONTH}_摘要.md", "w", encoding="utf-8") as f:
     f.write(summary)
 
 # ---------- log ----------
-now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+now = f'{TODAY} {datetime.datetime.now().strftime("%H:%M")}'   # 作業基準日固定 2026-09-20
 if os.environ.get("WRITE_LOG"):
   with open(f"{BASE}/log/dues_log.md", "a", encoding="utf-8") as f:
     f.write(f"| {now} | {MONTH} | {len(members)}／{len(pays)} | {cnt['已繳']}／{cnt['短繳']}／{cnt['重複繳']}／{cnt['未繳']}／{cnt['對不上']} | NT$ {fmt(unpaid_total)} | {len(lv['警告'])} | outbox/{MONTH}_對帳結果.csv、待人工確認.csv、催繳名單.csv、收據清單.csv、催繳信/（{len(chase) + len(dup)} 封）、摘要.md | 未確認 |\n")
