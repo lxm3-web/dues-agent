@@ -1,7 +1,7 @@
 import csv, re, os, datetime
 from collections import defaultdict
 
-BASE = "/Users/zhengyuwei/Library/Mobile Documents/com~apple~CloudDocs/Kyo's工作區/agents/web-design/projects/demo-library/cases/04_會費對帳催繳助理/02_AI設定/cc/dues-agent"
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TODAY = datetime.date(2026, 9, 20)
 MONTH = "2026-09"
 OUT = f"{BASE}/outbox"
@@ -286,9 +286,9 @@ summary = f"""{STATUS_LINE}
 
 ## 六、三個發現
 
-1. **對不上的 {cnt['對不上']} 筆（NT$ {fmt(unmatched_amt)}）每筆都有候選，人工一比就能收掉。** 三種卡法：(a) 名冊有 {len(twins)} 組公司只差「股份」兩字（{twin_names}），銀行匯款人名分不出來，佔 {twin_cnt} 筆——建議秘書處查匯款帳號或直接問會員；(b) 匯款人姓名遮罩（{masked_names}），用首尾字＋金額都找到唯一候選；(c)「中鼎企業」兩筆，名冊有 5 家「中鼎」開頭。收掉後未繳家數會再降，這批候選公司目前仍列未繳、也擬了信，**認領前先不要寄**。
+1. **對不上的 {cnt['對不上']} 筆（NT$ {fmt(unmatched_amt)}）每筆都有候選，人工一比就能收掉。** 三種卡法：(a) 名冊有 {len(twins)} 組公司只差「股份」兩字（{twin_names}），銀行匯款人名分不出來，佔 {twin_cnt} 筆——建議秘書處查匯款帳號或直接問會員；(b) 匯款人姓名遮罩（{masked_names}），用首尾字＋金額都找到唯一候選；(c)「中鼎企業」兩筆，名冊有 {len(by_pre2['中鼎'])} 家「中鼎」開頭。收掉後未繳家數會再降，這批候選公司目前仍列未繳、也擬了信，**認領前先不要寄**。
 2. **警告級 {len(lv['警告'])} 家分兩種。** {len(warn_630)} 家是 6/30 到期、逾期 82 天，權益暫停條款正要啟動，這批建議聯絡偏好是電話的先打電話；另外 {len(warn_old)} 家是 1/15、2/15 到期、逾期已超過 200 天（{old_names}），這種通常是去年就沒繳或已退會，建議先確認還在不在會，再決定要不要寄。金額最大的是 {top_warn['會員編號']} {top_warn['公司名稱']}（{top_warn['會員級別']}，NT$ {fmt(top_warn['差額'])}）。
-3. **短繳 {cnt['短繳']} 家差額都在 NT$ {fmt(short_min)}～{fmt(short_max)}，不像故意不繳。** 500／1,000 像是手續費被扣、3,000 像是匯了一半或打錯級別；信裡把差額寫清楚就好，不用施壓。
+3. **短繳 {cnt['短繳']} 家差額都在 NT$ {fmt(short_min)}～{fmt(short_max)}，不像故意不繳。** 500～2,000 像是手續費被扣或少匯、3,000 像是匯了一半；信裡把差額寫清楚就好，不用施壓。
 
 ## 七、各級別繳費率
 
