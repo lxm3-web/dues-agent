@@ -1,7 +1,7 @@
 import csv, re, os, datetime
 from collections import defaultdict
 
-BASE = "/Users/zhengyuwei/Library/Mobile Documents/com~apple~CloudDocs/Kyo's工作區/agents/web-design/projects/demo-library/cases/04_會費對帳催繳助理/02_AI設定/cc/dues-agent"
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TODAY = datetime.date(2026, 9, 20)
 MONTH = "2026-09"
 OUT = f"{BASE}/outbox"
@@ -189,14 +189,28 @@ def letter(r):
 def cjk_len(s):
     return len(re.sub(r"[\s：。，、；（）\d,$NT/]", "", s))
 
+BANNED = ["法律途徑", "最後通牒"]
 lengths = []
+violations = []
 for r in chase + dup:
     head, body, ask, tail = letter(r)
+    full = head + body + ask + tail
+    n = len(full)
+    if not (120 <= n <= 180):
+        violations.append(f"{r['會員編號']} {r['公司名稱']}：{n} 字（要 120–180）")
+    for w in BANNED:
+        if w in full:
+            violations.append(f"{r['會員編號']} {r['公司名稱']}：出現禁語「{w}」")
     tag = f"{r['狀態']}" + (f"／{r['級別']}" if r["級別"] else "")
     text = f"{STATUS_LINE}\n\n# {r['會員編號']} {r['公司名稱']}｜{tag}\n\n{head}\n\n{body}\n\n{ask}\n\n{tail}\n"
     with open(f"{LETTERS}/{r['會員編號']}_{r['公司名稱']}.md", "w", encoding="utf-8") as f:
         f.write(text)
-    lengths.append((r["會員編號"], len(head + body + ask + tail)))
+    lengths.append((r["會員編號"], n))
+
+if violations:
+    raise SystemExit(
+        "鐵律5檢查沒過，以下信件不准交出去，改完再重跑：\n" + "\n".join(violations)
+    )
 
 # ---------- 統計 ----------
 cnt = {s: sum(1 for r in rows if r["狀態"] == s) for s in ("已繳", "短繳", "重複繳", "未繳")}
